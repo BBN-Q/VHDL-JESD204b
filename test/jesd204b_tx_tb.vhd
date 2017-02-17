@@ -45,13 +45,12 @@ architecture bench of jesd204b_tx_tb is
 	signal tx_start_of_frame      : std_logic_vector(3 downto 0) := (others => '0');
 	signal tx_start_of_multiframe : std_logic_vector(3 downto 0) := (others => '0');
 	signal tx_aresetn             : std_logic := '0';
-	signal tx_tdata               : std_logic_vector(127 downto 0) := (others => '0');
-	signal tx_tready              : std_logic := '0';
 
-	signal tx_sync_xilinx, tx_sync_bbn : std_logic := '0';
+	signal tx_tdata_xilinx, tx_tdata_bbn   : std_logic_vector(127 downto 0) := (others => '0');
+	signal tx_tready_xilinx, tx_tready_bbn : std_logic := '0';
+	signal tx_sync_xilinx, tx_sync_bbn     : std_logic := '0';
 
 	signal rst_bbn : std_logic := '1';
-	signal tx_tready_bbn : std_logic := '0';
 	signal gt_tdata : std_logic_vector(127 downto 0);
 	type gt_tdata_array_t is array(3 downto 0) of std_logic_vector(31 downto 0);
 	signal gt_tdata_array : gt_tdata_array_t;
@@ -62,6 +61,20 @@ architecture bench of jesd204b_tx_tb is
   constant axi_clock_period : time := 10 ns;
 	constant core_clock_period : time := 5.5333 ns;
   signal stop_the_clocks : boolean;
+
+	procedure push_test_data(signal tready : in std_logic; signal tdata : out std_logic_vector(127 downto 0)) is
+
+	begin
+		tdata <= x"abcdef01abcdef02abcdef03abcdef04";
+		wait until rising_edge(tx_core_clk) and tready = '1';
+		for ct in 1 to 15 loop
+			wait until rising_edge(tx_core_clk);
+		end loop;
+		tdata <= (others => '0');
+		for ct in 1 to 16 loop
+			wait until rising_edge(tx_core_clk);
+		end loop;
+	end procedure push_test_data;
 
 begin
 
@@ -103,8 +116,8 @@ uut_xilinx: entity work.jesd204_xilinx
 		tx_start_of_frame      => tx_start_of_frame,
 		tx_start_of_multiframe => tx_start_of_multiframe,
 		tx_aresetn             => tx_aresetn,
-		tx_tdata               => tx_tdata,
-		tx_tready              => tx_tready,
+		tx_tdata               => tx_tdata_xilinx,
+		tx_tready              => tx_tready_xilinx,
 		tx_sync                => tx_sync_xilinx
 	);
 
@@ -122,7 +135,7 @@ uut_bbn : entity work.jesd204b_tx
 		syncn => tx_sync_bbn,
 		sysref => tx_sysref,
 
-		tx_tdata => tx_tdata,
+		tx_tdata => tx_tdata_bbn,
 		tx_tready => tx_tready_bbn,
 
 		gt_tdata => gt_tdata,
@@ -138,6 +151,17 @@ end generate;
 s_axi_aclk <= not s_axi_aclk after axi_clock_period / 2 when not stop_the_clocks;
 tx_core_clk <= not tx_core_clk after core_clock_period /2 when not stop_the_clocks;
 tx_sysref <= not tx_sysref after 2 * core_clock_period when not stop_the_clocks;
+
+drive_test_data_xilinx : process
+begin
+	push_test_data(tx_tready_xilinx, tx_tdata_xilinx);
+end process;
+
+drive_test_data_bbn : process
+begin
+	push_test_data(tx_tready_bbn, tx_tdata_bbn);
+end process;
+
 
 stimulus: process
 
@@ -236,10 +260,8 @@ tx_sync_bbn <= '1';
 
 wait for 1 us;
 wait until rising_edge(tx_core_clk);
-tx_tdata <= x"abcdef01abcdef02abcdef03abcdef04";
 wait for 100 ns;
 wait until rising_edge(tx_core_clk);
-tx_tdata <= (others => '0');
 
 
 wait;
