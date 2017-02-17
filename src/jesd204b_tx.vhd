@@ -47,7 +47,7 @@ type ila_data_array_t is array(L-1 downto 0) of octet_array(0 to 4*K*F-1);
 signal ila_data_array : ila_data_array_t := (others => (others => x"00"));
 
 signal ila_multiframe_ct : natural range 0 to 3;
-signal ila_done : boolean := false;
+signal ila_last : boolean := false;
 signal ila_data : octet_array(L*4-1 downto 0);
 
 signal frame_ct : natural range 0 to K-1;
@@ -82,7 +82,7 @@ begin
 					end if;
 
 				when ILA =>
-					if ila_done then
+					if ila_last then
 						state <= TRANSMITTING;
 					end if;
 
@@ -101,7 +101,7 @@ with state select gt_tdata <=
 	(others => '0') when IDLE,
 	flatten(cgs_data) when WAIT_FOR_CGS,
 	flatten(ila_data) when ILA,
-	(others => '0') when TRANSMITTING;
+	tx_tdata when TRANSMITTING;
 
 -- can take data when in TRANSMITTING state
 tx_tready <= '1' when state = TRANSMITTING else '0';
@@ -112,20 +112,15 @@ begin
 	if rising_edge(clk) then
 		if rst = '1' or state = WAIT_FOR_CGS then
 			ila_multiframe_ct <= 0;
-			ila_done <= false;
 		else
-			if not ila_done then
-				if frame_ct = K - 4/F then
-					if ila_multiframe_ct = 3 then
-						ila_done <= true;
-					else
-						ila_multiframe_ct <= ila_multiframe_ct + 1;
-					end if;
-				end if;
+			if (not ila_last) and (frame_ct = K-4/F) then
+				ila_multiframe_ct <= ila_multiframe_ct + 1;
 			end if;
 		end if;
 	end if;
 end process;
+
+ila_last <= (state = ILA)git  and (frame_ct = K - 4/F)  and (ila_multiframe_ct = 3);
 
 ila_data_slicer : for lane_ct in 0 to L-1 generate
 	ila_data_byte_slicer : for byte_ct in 0 to 3 generate

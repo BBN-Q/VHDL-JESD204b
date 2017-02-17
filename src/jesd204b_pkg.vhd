@@ -86,7 +86,7 @@ package body jesd204b_pkg is
 			(octet => 7,  offset => 0, bit_width => 5, value => converter_resolution-1), -- N Converter resolution - 1
 			(octet => 8,  offset => 0, bit_width => 5, value => bits_per_sample-1), --N’ Total no. of bits per sample - 1
 			(octet => 2,  offset => 5, bit_width => 1, value => 0), -- PHADJ Phase adjustment request to DAC Subclass 2 only.
-			(octet => 9,  offset => 0, bit_width => 8, value => K*F/(bits_per_sample/8)), -- S No. of samples per converter per frame cycle - 1
+			(octet => 9,  offset => 0, bit_width => 8, value => L*F/M/(bits_per_sample/8)-1), -- S No. of samples per converter per frame cycle - 1
 			(octet => 3,  offset => 7, bit_width => 8, value => scrambling_enabled), -- SCR Scrambling enabled
 			(octet => 8,  offset => 5, bit_width => 3, value => 0), -- SUBCLASSV Device Subclass Version
 			(octet => 11, offset => 0, bit_width => 8, value => 0), -- RES1 Reserved field 1
