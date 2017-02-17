@@ -46,9 +46,12 @@ type ila_data_array_t is array(L-1 downto 0) of octet_array(0 to 4*K*F-1);
 -- should be able to do this as a constant with VHDL-2008
 signal ila_data_array : ila_data_array_t := (others => (others => x"00"));
 
+constant ila_charisk_array : std_logic_vector := fill_ila_charisk(F, K);
+
 signal ila_multiframe_ct : natural range 0 to 3;
 signal ila_last : boolean := false;
 signal ila_data : octet_array(L*4-1 downto 0);
+signal ila_charisk : std_logic_vector(L*4-1 downto 0);
 
 signal frame_ct : natural range 0 to K-1;
 
@@ -103,6 +106,12 @@ with state select gt_tdata <=
 	flatten(ila_data) when ILA,
 	tx_tdata when TRANSMITTING;
 
+with state select gt_charisk <=
+	(others => '0') when IDLE,
+	(others => '1') when WAIT_FOR_CGS,
+	ila_charisk when ILA,
+	(others => '0') when TRANSMITTING;
+
 -- can take data when in TRANSMITTING state
 tx_tready <= '1' when state = TRANSMITTING else '0';
 
@@ -113,17 +122,19 @@ begin
 		if rst = '1' or state = WAIT_FOR_CGS then
 			ila_multiframe_ct <= 0;
 		else
-			if (not ila_last) and (frame_ct = K-4/F) then
+			if (not ila_last) and (frame_ct = K-4/F) and ila_multiframe_ct < 3 then
 				ila_multiframe_ct <= ila_multiframe_ct + 1;
 			end if;
 		end if;
 	end if;
 end process;
 
-ila_last <= (state = ILA)git  and (frame_ct = K - 4/F)  and (ila_multiframe_ct = 3);
+ila_last <= (state = ILA) and (frame_ct = K - 4/F)  and (ila_multiframe_ct = 3);
 
 ila_data_slicer : for lane_ct in 0 to L-1 generate
+	-- we send 4 octets at a time
 	ila_data_byte_slicer : for byte_ct in 0 to 3 generate
+		ila_charisk(4*lane_ct+byte_ct) <= ila_charisk_array(ila_multiframe_ct*K + frame_ct + byte_ct);
 		ila_data(4*lane_ct + byte_ct) <= ila_data_array(lane_ct)(ila_multiframe_ct*K + frame_ct + byte_ct);
 	end generate;
 end generate;

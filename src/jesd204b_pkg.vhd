@@ -35,6 +35,9 @@ package jesd204b_pkg is
 	                       bits_per_sample : natural; scrambling_enabled : natural)
 	                       return octet_array;
 
+
+	function fill_ila_charisk(F : natural; K : natural) return std_logic_vector;
+
 end jesd204b_pkg;
 
 
@@ -99,7 +102,7 @@ package body jesd204b_pkg is
 		for ct in 0 to ila_data'length-1 loop
 			ila_data(ct) := std_logic_vector(to_unsigned(ct, 8));
 		end loop;
-		-- fill in start with /28.0/ (/R/) and end with /28.3/ (/A/) of multiframe
+		-- fill in start with /28.0/ (/R/) and end with /28.3/ (/A/) of each multiframe
 		for ct in 0 to 3 loop
 			ila_data(K*F*ct) := control_chars.R;
 			ila_data(K*F*(ct+1)-1) := control_chars.A;
@@ -126,6 +129,22 @@ package body jesd204b_pkg is
 
 		return ila_data;
 	end fill_ila_data;
+
+
+	function fill_ila_charisk(F : natural; K : natural) return std_logic_vector is
+		variable ila_charisk : std_logic_vector(0 to 4*K*F-1) := (others => '0');
+	begin
+		-- each muliframe starts and ends with control character
+		for ct in 0 to 3 loop
+			ila_charisk(K*F*ct) := '1';
+			ila_charisk(K*F*(ct+1)-1) := '1';
+		end loop;
+
+		-- 2nd octet of 2nd multiframe indicates configuration data with control character
+		ila_charisk(K*F+1) := '1';
+
+		return ila_charisk;
+	end fill_ila_charisk;
 
 
 end jesd204b_pkg;
