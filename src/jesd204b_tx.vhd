@@ -2,6 +2,7 @@
 -- * subclass 0 only
 -- * optional scrambler
 -- * link parameters set through generics
+--
 -- Original author: Colm Ryan
 -- Copyright 2017 Raytheon BBN Technologies
 
@@ -16,7 +17,8 @@ entity jesd204b_tx is
 		M : natural := 1; -- number of converters
 		L : natural := 4; -- number of physical lanes
 		F : natural := 1; -- number of octets per frame -- only handle 1, 2, 4
-		K : natural := 32 -- number of frames per multiframe
+		K : natural := 32; -- number of frames per multiframe
+		SCRAMBLING_ENABLE : boolean := false
 	);
 	port (
 		clk : in std_logic;
@@ -49,16 +51,30 @@ signal ila_data_array : ila_data_array_t := (others => (others => x"00"));
 constant ila_charisk_array : std_logic_vector := fill_ila_charisk(F, K);
 
 signal ila_multiframe_ct : natural range 0 to 3;
-signal ila_last : boolean := false;
+signal ila_last, ila_done, ila_done_d, ila_done_dd : boolean := false;
 signal ila_data : octet_array(L*4-1 downto 0);
 signal ila_charisk : std_logic_vector(L*4-1 downto 0);
 
+signal cgs_ila_tdata, cgs_ila_tdata_d : std_logic_vector(L*32-1 downto 0);
+signal cgs_ila_charisk, cgs_ila_charisk_d : std_logic_vector(L*4-1 downto 0);
+
 signal frame_ct : natural range 0 to K-1;
+signal end_of_multiframe : boolean := false;
+
+-- keep track of octets for alignemnt character insertion without scrambling
+signal prev_octet : octet_array(L-1 downto 0) := (others => x"00");
+signal prev_octet_replaced : boolean_vector(L-1 downto 0) := (others => true);
+
+signal data_in : octet_array(L*4-1 downto 0) := (others => x"00");
+signal data_scrambled : octet_array(L*4-1 downto 0) := (others => x"00");
+signal data_alignment_inserted : octet_array(L*4-1 downto 0) := (others => x"00");
+signal data_charisk : std_logic_vector(L*4-1 downto 0);
+
 
 begin
 
 fill_ila_data_gen : for lane_ct in 0 to L-1 generate
-	ila_data_array(lane_ct) <= fill_ila_data(M, L, F, K, lane_ct, 16, 16, 0);
+	ila_data_array(lane_ct) <= fill_ila_data(M, L, F, K, lane_ct, 16, 16, SCRAMBLING_ENABLE);
 end generate;
 -- synchronize syncn onto clk
 syncn_synchronizer_inst : entity work.synchronizer
@@ -99,29 +115,24 @@ begin
 
 end process;
 
--- mux between the possible outputs
-with state select gt_tdata <=
-	(others => '0') when IDLE,
-	flatten(cgs_data) when WAIT_FOR_CGS,
-	flatten(ila_data) when ILA,
-	tx_tdata when TRANSMITTING;
-
-with state select gt_charisk <=
-	(others => '0') when IDLE,
-	(others => '1') when WAIT_FOR_CGS,
-	ila_charisk when ILA,
-	(others => '0') when TRANSMITTING;
-
--- can take data when in TRANSMITTING state
-tx_tready <= '1' when state = TRANSMITTING else '0';
-
 -- process to count through the 4 ILA multiframes
 ila_player : process(clk)
 begin
 	if rising_edge(clk) then
 		if rst = '1' or state = WAIT_FOR_CGS then
 			ila_multiframe_ct <= 0;
+			ila_last <= false;
+			ila_done <= false;
+			ila_done_d <= false;
+			ila_done_dd <= false;
 		else
+			ila_done <= ila_last;
+			ila_done_d <= ila_done;
+			ila_done_dd <= ila_done_d;
+			if (frame_ct = K - 8/F)  and (ila_multiframe_ct = 3) then
+				ila_last <= true;
+			end if;
+			-- latch on ila_last
 			if (not ila_last) and (frame_ct = K-4/F) and ila_multiframe_ct < 3 then
 				ila_multiframe_ct <= ila_multiframe_ct + 1;
 			end if;
@@ -129,7 +140,6 @@ begin
 	end if;
 end process;
 
-ila_last <= (state = ILA) and (frame_ct = K - 4/F)  and (ila_multiframe_ct = 3);
 
 ila_data_slicer : for lane_ct in 0 to L-1 generate
 	-- we send 4 octets at a time
@@ -139,22 +149,133 @@ ila_data_slicer : for lane_ct in 0 to L-1 generate
 	end generate;
 end generate;
 
+-- double register jesd cfg data to align with user data for scrambling and character replacement pipeline
+cfg_data_delay_registers : process(clk)
+begin
+	if rising_edge(clk) then
+		case( state ) is
+			when IDLE | TRANSMITTING =>
+				cgs_ila_tdata <= (others => '0');
+				cgs_ila_charisk <= (others => '0');
+			when WAIT_FOR_CGS =>
+				cgs_ila_tdata <= flatten(cgs_data);
+				cgs_ila_charisk <= (others => '1');
+			when ILA =>
+				cgs_ila_tdata <= flatten(ila_data);
+				cgs_ila_charisk <= ila_charisk;
+		end case;
+		cgs_ila_tdata_d <= cgs_ila_tdata;
+		cgs_ila_charisk_d <= cgs_ila_charisk;
+	end if;
+end process;
+
 -- count out multiframes
 frame_counter : process(clk)
 begin
 	if rising_edge(clk) then
 		if rst = '1' or state = WAIT_FOR_CGS then
 			frame_ct <= 0;
+			end_of_multiframe <= false;
 		else
 			if frame_ct = K - 4/F then
 				frame_ct <= 0;
+				end_of_multiframe <= true;
 			else
 				frame_ct <= frame_ct + 4/F; -- play 4 bytes at a time TODO: handle F other than 1,2,4
+				end_of_multiframe <= false;
 			end if;
 		end if;
 	end if;
-
 end process;
+
+data_in_to_octets : for lane_ct in 0 to L-1 generate
+	byte_gen : for byte_ct in 4*lane_ct to 4*lane_ct+3 generate
+		data_in(byte_ct) <= tx_tdata(8*(byte_ct+1)-1 downto 8*byte_ct);
+	end generate;
+end generate;
+
+-- TODO: scramble data
+-- see section 5.2
+scrambler_pro : process(clk)
+begin
+	if rising_edge(clk) then
+		data_scrambled <= data_in;
+	end if;
+end process;
+
+-- process to insert frame alignment characters when possible
+-- see section 5.3.3.4
+character_replacement_gen : for lane_ct in 0 to L-1 generate
+
+	character_replacement_pro : process(clk)
+		variable tmp_prev : octet;
+		variable tmp_replaced : boolean := true;
+		variable tmp_charisk : std_logic_vector(3 downto 0);
+		variable data_in, data_out : octet_array(3 downto 0);
+	begin
+
+		if rising_edge(clk) then
+
+			if rst = '1' then
+				prev_octet_replaced(lane_ct) <= true;
+				data_charisk(4*(lane_ct+1)-1 downto 4*lane_ct) <= x"0";
+			else
+				-- copy over data as default
+				data_in := data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct);
+				data_out := data_in;
+
+				tmp_prev := prev_octet(lane_ct);
+				tmp_replaced := prev_octet_replaced(lane_ct);
+				tmp_charisk := b"0000";
+
+				-- without scrambling then we replace repeated octets at the end of frames
+				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLE generate
+				-- check octets at end of frame
+				for ct in 1 to 4/F loop
+					if data_in(F*ct-1) = tmp_prev then
+						if ct = 4/F and end_of_multiframe then
+							data_out(F*ct-1) := control_chars.A;
+							tmp_replaced := true;
+						elsif not tmp_replaced then
+							data_out(F*ct-1) := control_chars.F;
+							tmp_replaced := true;
+						else
+							tmp_replaced := false;
+						end if;
+					else
+						tmp_replaced := false;
+					end if;
+					if tmp_replaced then
+						tmp_charisk(F*ct-1) := '1';
+					end if;
+					tmp_prev := data_in(F*ct-1);
+				end loop;
+				-- end generate;
+
+
+				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLE generate
+				--
+				-- end generate;
+
+				-- output registers
+				data_alignment_inserted(4*(lane_ct+1)-1 downto 4*lane_ct) <= data_out;
+				data_charisk(4*(lane_ct+1)-1 downto 4*lane_ct) <= tmp_charisk;
+
+				prev_octet(lane_ct) <= tmp_prev;
+				prev_octet_replaced(lane_ct) <= tmp_replaced;
+
+			end if;
+		end if;
+	end process;
+end generate;
+
+
+-- can take data when in TRANSMITTING state
+tx_tready <= '1' when (state = TRANSMITTING) else '0';
+
+-- mux between user data and CGS/ILA data
+gt_tdata <= flatten(data_alignment_inserted) when ila_done_dd else cgs_ila_tdata_d;
+gt_charisk <= data_charisk when ila_done_dd else cgs_ila_charisk_d;
 
 
 end architecture;

@@ -255,14 +255,8 @@ end loop;
 
 
 tx_sync_xilinx <= '1';
-wait for 110 ns; -- Xilinx seems to take longer to respond to syncn
+wait for 100 ns; -- Xilinx seems to take longer to respond to syncn
 tx_sync_bbn <= '1';
-
-wait for 1 us;
-wait until rising_edge(tx_core_clk);
-wait for 100 ns;
-wait until rising_edge(tx_core_clk);
-
 
 wait;
 stop_the_clocks <= true;

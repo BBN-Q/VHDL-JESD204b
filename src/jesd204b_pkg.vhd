@@ -32,7 +32,7 @@ package jesd204b_pkg is
 	-- and "The "Vhdl 2008 Unconstrained Array Type as Subtype in Array Type Definition" is not supported yet for simulation"
 	function fill_ila_data(M : natural; L : natural; F : natural; K : natural;
 	                       lane_num : natural; converter_resolution : natural;
-	                       bits_per_sample : natural; scrambling_enabled : natural)
+	                       bits_per_sample : natural; scrambling_enabled : boolean)
 	                       return octet_array;
 
 
@@ -58,7 +58,7 @@ package body jesd204b_pkg is
 	-- see section 8.2 in particular Figure 50 of the JEDEC Standard No. 204B
 	function fill_ila_data(M : natural; L : natural; F : natural; K : natural;
 	                       lane_num : natural; converter_resolution : natural;
-	                       bits_per_sample : natural; scrambling_enabled : natural)
+	                       bits_per_sample : natural; scrambling_enabled : boolean)
 	                       return octet_array is
 		variable ila_data : octet_array(0 to 4*K*F-1) := (others => x"00");
 		variable checksum : unsigned(7 downto 0) := (others => '0');
@@ -71,8 +71,8 @@ package body jesd204b_pkg is
 			value     : natural range 0 to 255;
 		end record;
 
-		type configuration_data_array_t is array(0 to 21) of configuration_data;
-		variable configuration_data_array : configuration_data_array_t := (
+		type configuration_data_vector_t is array(0 to 21) of configuration_data;
+		variable configuration_data_vector : configuration_data_vector_t := (
 			(octet => 4,  offset => 1, bit_width => 4, value => 0), -- ADJCNT Number of adjustment resolution steps to adjust DAC LMFC. Applies to Subclass 2 operation only.
 			(octet => 2,  offset => 6, bit_width => 1, value => 0), -- ADJDIR Direction to adjust DAC LMFC 0 – Advance 1 – Delay Applies to Subclass 2 operation only
 			(octet => 1,  offset => 0, bit_width => 4, value => 11), -- BID Bank ID – Extension to DID -- x"b" for fun
@@ -90,7 +90,7 @@ package body jesd204b_pkg is
 			(octet => 8,  offset => 0, bit_width => 5, value => bits_per_sample-1), --N’ Total no. of bits per sample - 1
 			(octet => 2,  offset => 5, bit_width => 1, value => 0), -- PHADJ Phase adjustment request to DAC Subclass 2 only.
 			(octet => 9,  offset => 0, bit_width => 8, value => L*F/M/(bits_per_sample/8)-1), -- S No. of samples per converter per frame cycle - 1
-			(octet => 3,  offset => 7, bit_width => 8, value => scrambling_enabled), -- SCR Scrambling enabled
+			(octet => 3,  offset => 7, bit_width => 8, value => 0), -- SCR Scrambling enabled
 			(octet => 8,  offset => 5, bit_width => 3, value => 0), -- SUBCLASSV Device Subclass Version
 			(octet => 11, offset => 0, bit_width => 8, value => 0), -- RES1 Reserved field 1
 			(octet => 12, offset => 0, bit_width => 8, value => 0), -- RES2 Reserved field 2
@@ -98,6 +98,11 @@ package body jesd204b_pkg is
 		);
 		variable cfg_data : configuration_data;
 	begin
+		-- fill in scrambling field
+		if scrambling_enabled then
+			configuration_data_vector(17).value := 1;
+		end if;
+
 		-- fill in data ramp
 		for ct in 0 to ila_data'length-1 loop
 			ila_data(ct) := std_logic_vector(to_unsigned(ct, 8));
@@ -117,10 +122,10 @@ package body jesd204b_pkg is
 		end loop;
 		-- calculate checksum as we loop through and set bit values
 		checksum := (others => '0');
-		for ct in 0 to configuration_data_array'length-1 loop
-			cfg_data := configuration_data_array(ct);
+		for ct in 0 to configuration_data_vector'length-1 loop
+			cfg_data := configuration_data_vector(ct);
 			checksum := checksum + to_unsigned(cfg_data.value, cfg_data.bit_width);
-			if ct = configuration_data_array'length-1 then
+			if ct = configuration_data_vector'length-1 then
 				cfg_data.value := to_integer(checksum);
 			end if;
 			ila_data(K*F+2+cfg_data.octet) := ila_data(K*F+2+cfg_data.octet) or
