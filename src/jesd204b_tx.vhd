@@ -18,7 +18,7 @@ entity jesd204b_tx is
 		L : natural := 4; -- number of physical lanes
 		F : natural := 1; -- number of octets per frame -- only handle 1, 2, 4
 		K : natural := 32; -- number of frames per multiframe
-		SCRAMBLING_ENABLE : boolean := false
+		SCRAMBLING_ENABLED : boolean := false
 	);
 	port (
 		clk : in std_logic;
@@ -61,20 +61,23 @@ signal cgs_ila_charisk, cgs_ila_charisk_d : std_logic_vector(L*4-1 downto 0);
 signal frame_ct : natural range 0 to K-1;
 signal end_of_multiframe : boolean := false;
 
+-- scrambler state for each lane
+type scramber_state_t is array(L-1 downto 0) of std_logic_vector(15 downto 0);
+signal scrambler_state : scramber_state_t := (others => "7f80");
+
 -- keep track of octets for alignemnt character insertion without scrambling
 signal prev_octet : octet_array(L-1 downto 0) := (others => x"00");
 signal prev_octet_replaced : boolean_vector(L-1 downto 0) := (others => true);
 
-signal data_in : octet_array(L*4-1 downto 0) := (others => x"00");
+signal data_octets : octet_array(L*4-1 downto 0) := (others => x"00");
 signal data_scrambled : octet_array(L*4-1 downto 0) := (others => x"00");
 signal data_alignment_inserted : octet_array(L*4-1 downto 0) := (others => x"00");
 signal data_charisk : std_logic_vector(L*4-1 downto 0);
 
-
 begin
 
 fill_ila_data_gen : for lane_ct in 0 to L-1 generate
-	ila_data_array(lane_ct) <= fill_ila_data(M, L, F, K, lane_ct, 16, 16, SCRAMBLING_ENABLE);
+	ila_data_array(lane_ct) <= fill_ila_data(M, L, F, K, lane_ct, 16, 16, SCRAMBLING_ENABLED);
 end generate;
 -- synchronize syncn onto clk
 syncn_synchronizer_inst : entity work.synchronizer
@@ -190,18 +193,66 @@ end process;
 
 data_in_to_octets : for lane_ct in 0 to L-1 generate
 	byte_gen : for byte_ct in 4*lane_ct to 4*lane_ct+3 generate
-		data_in(byte_ct) <= tx_tdata(8*(byte_ct+1)-1 downto 8*byte_ct);
+		data_octets(byte_ct) <= tx_tdata(8*(byte_ct+1)-1 downto 8*byte_ct);
 	end generate;
 end generate;
 
 -- TODO: scramble data
 -- see section 5.2
-scrambler_pro : process(clk)
-begin
-	if rising_edge(clk) then
-		data_scrambled <= data_in;
-	end if;
-end process;
+-- scramble each frame from MSB to LSB
+-- scrambling polynomial is 1 + x^14 + x^15
+-- initial seed is (see section 5.2.5)
+-- ""1" for the eight storage elements with the highest indices and "0" for the seven remaining ones."
+
+scrambler_enabled_gen : if SCRAMBLING_ENABLED generate
+
+	scrambler_per_lane_gen : for lane_ct in 0 to L-1 generate
+
+		scrambler_pro : process(clk)
+			variable tmp_state : std_logic_vector(15 downto 0);
+			variable data_in, data_out : octet_array(3 downto 0);
+			variable scrambled_bit : std_logic;
+		begin
+			if rising_edge(clk) then
+				if rst = '1' or state = WAIT_FOR_CGS then
+					scrambler_state(lane_ct) <= x"7f80";
+
+				elsif tx_tready = '1' then
+					tmp_state := scrambler_state(lane_ct);
+					data_in := data_octets(4*(lane_ct+1)-1 downto 4*lane_ct);
+
+					for frame_idx in 1 to 4/F loop
+						for byte_idx in F-1 downto 0 loop
+							for bit_idx in 7 downto 0 loop
+								tmp_state(15) := data_in((frame_idx-1)*F + byte_idx)(bit_idx) xor tmp_state(1) xor tmp_state(0);
+								data_out((frame_idx-1)*F + byte_idx)(bit_idx) := tmp_state(15);
+								tmp_state := tmp_state srl 1;
+							end loop;
+						end loop;
+					end loop;
+
+					-- output register
+					data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct) <= data_in(4*(lane_ct+1)-1 downto 4*lane_ct);
+
+				end if;
+			end if;
+		end process;
+
+	end generate;
+
+end generate;
+
+scrambler_disabled_gen : if not SCRAMBLING_ENABLED generate
+	-- with scrambler just register to mainitain timing
+	scrambler_pro : process(clk)
+	begin
+		if rising_edge(clk) then
+			data_scrambled <= data_octets;
+		end if;
+	end process;
+
+end generate;
+
 
 -- process to insert frame alignment characters when possible
 -- see section 5.3.3.4
@@ -229,7 +280,8 @@ character_replacement_gen : for lane_ct in 0 to L-1 generate
 				tmp_charisk := b"0000";
 
 				-- without scrambling then we replace repeated octets at the end of frames
-				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLE generate
+
+				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLED generate
 				-- check octets at end of frame
 				for ct in 1 to 4/F loop
 					if data_in(F*ct-1) = tmp_prev then
@@ -253,7 +305,7 @@ character_replacement_gen : for lane_ct in 0 to L-1 generate
 				-- end generate;
 
 
-				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLE generate
+				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLED generate
 				--
 				-- end generate;
 
