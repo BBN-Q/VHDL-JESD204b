@@ -62,6 +62,8 @@ architecture bench of jesd204b_tx_tb is
 	constant core_clock_period : time := 5.5333 ns;
   signal stop_the_clocks : boolean;
 
+	signal matches_xilinx : boolean := false;
+
 	procedure push_test_data(signal tready : in std_logic; signal tdata : out std_logic_vector(127 downto 0)) is
 
 	begin
@@ -147,6 +149,15 @@ split_gt_data : for ct in 0 to 3 generate
 	gt_charisk_array(ct) <= gt_charisk(4*(ct+1)-1 downto 4*ct);
 end generate;
 
+matches_xilinx <=
+	(gt_tdata_array(0) = gt0_txdata) and
+	(gt_charisk_array(0) = gt0_txcharisk) and
+	(gt_tdata_array(1) = gt1_txdata) and
+	(gt_charisk_array(1) = gt1_txcharisk) and
+	(gt_tdata_array(2) = gt2_txdata) and
+	(gt_charisk_array(2) = gt2_txcharisk) and
+	(gt_tdata_array(3) = gt3_txdata) and
+	(gt_charisk_array(3) = gt3_txcharisk);
 
 s_axi_aclk <= not s_axi_aclk after axi_clock_period / 2 when not stop_the_clocks;
 tx_core_clk <= not tx_core_clk after core_clock_period /2 when not stop_the_clocks;
