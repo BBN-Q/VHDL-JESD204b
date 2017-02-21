@@ -227,24 +227,11 @@ scrambler_enabled_gen : if SCRAMBLING_ENABLED generate
 					data_in := data_octets(4*(lane_ct+1)-1 downto 4*lane_ct);
 
 					for frame_idx in 1 to 4/F loop
-						write(l, "frame_idx = " & integer'image(frame_idx));
-						writeline(output, l);
 						for byte_idx in F-1 downto 0 loop
-							write(l, "byte_idx = " & integer'image(byte_idx) & " data_byte = " & to_hstring(data_in((frame_idx-1)*F + byte_idx)));
-							writeline(output, l);
 							for bit_idx in 7 downto 0 loop
 								tmp_state := tmp_state srl 1;
-								write(l, "bit_idx = " & integer'image(bit_idx) &
-								" current bit = " & std_logic'image(data_in((frame_idx-1)*F + byte_idx)(bit_idx)) &
-								" tmp_state = " & to_hstring(tmp_state));
-								writeline(output, l);
 								tmp_state(15) := data_in((frame_idx-1)*F + byte_idx)(bit_idx) xor tmp_state(1) xor tmp_state(0);
 								data_out((frame_idx-1)*F + byte_idx)(bit_idx) := tmp_state(15);
-								write(l, "tmp_state = " & to_hstring(tmp_state) & "; data_out = ");
-								for ct in 7 downto 0 loop
-									write(l, std_logic'image(data_out((frame_idx-1)*F + byte_idx)(ct)));
-								end loop;
-								writeline(output, l);
 							end loop;
 						end loop;
 					end loop;
