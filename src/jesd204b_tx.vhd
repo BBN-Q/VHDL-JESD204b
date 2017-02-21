@@ -175,6 +175,8 @@ begin
 end process;
 
 -- count out multiframes
+-- assume for now that frames and muliframes are 4 byte aligned so that end_of_multiframe
+-- implies last byte of 4 is end of multiframe
 frame_counter : process(clk)
 begin
 	if rising_edge(clk) then
@@ -243,7 +245,6 @@ scrambler_enabled_gen : if SCRAMBLING_ENABLED generate
 									write(l, std_logic'image(data_out((frame_idx-1)*F + byte_idx)(ct)));
 								end loop;
 								writeline(output, l);
-
 							end loop;
 						end loop;
 					end loop;
@@ -276,56 +277,53 @@ end generate;
 -- see section 5.3.3.4
 character_replacement_gen : for lane_ct in 0 to L-1 generate
 
-	character_replacement_pro : process(clk)
-		variable tmp_prev : octet;
-		variable tmp_replaced : boolean := true;
-		variable tmp_charisk : std_logic_vector(3 downto 0);
-		variable data_in, data_out : octet_array(3 downto 0);
-	begin
+	-- without scrambling then we replace repeated octets at the end of frames
+	-- it's annoying we can't but the if generate in the process because there is
+	-- repeated code between the two
+	character_replacement_without_scrambler : if not SCRAMBLING_ENABLED generate
 
-		if rising_edge(clk) then
+		character_replacement_pro : process(clk)
+			variable tmp_prev : octet;
+			variable tmp_replaced : boolean := true;
+			variable tmp_charisk : std_logic_vector(3 downto 0);
+			variable data_in, data_out : octet_array(3 downto 0);
+		begin
 
-			if rst = '1' then
-				prev_octet_replaced(lane_ct) <= true;
-				data_charisk(4*(lane_ct+1)-1 downto 4*lane_ct) <= x"0";
-			else
-				-- copy over data as default
-				data_in := data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct);
-				data_out := data_in;
+			if rising_edge(clk) then
 
-				tmp_prev := prev_octet(lane_ct);
-				tmp_replaced := prev_octet_replaced(lane_ct);
-				tmp_charisk := b"0000";
+				if rst = '1' then
+					prev_octet_replaced(lane_ct) <= true;
+				else
+					-- copy over data as default
+					data_in := data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct);
+					data_out := data_in;
 
-				-- without scrambling then we replace repeated octets at the end of frames
+					tmp_prev := prev_octet(lane_ct);
+					tmp_replaced := prev_octet_replaced(lane_ct);
+					tmp_charisk := b"0000";
 
-				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLED generate
-				-- check octets at end of frame
-				for ct in 1 to 4/F loop
-					if data_in(F*ct-1) = tmp_prev then
-						if ct = 4/F and end_of_multiframe then
-							data_out(F*ct-1) := control_chars.A;
-							tmp_replaced := true;
-						elsif not tmp_replaced then
-							data_out(F*ct-1) := control_chars.F;
-							tmp_replaced := true;
+					-- check octets at end of frame
+					for ct in 1 to 4/F loop
+						if data_in(F*ct-1) = tmp_prev then
+							if (ct = 4/F) and end_of_multiframe then
+								data_out(F*ct-1) := control_chars.A;
+								tmp_replaced := true;
+							elsif not tmp_replaced then
+								data_out(F*ct-1) := control_chars.F;
+								tmp_replaced := true;
+							else
+								tmp_replaced := false;
+							end if;
 						else
 							tmp_replaced := false;
 						end if;
-					else
-						tmp_replaced := false;
-					end if;
-					if tmp_replaced then
-						tmp_charisk(F*ct-1) := '1';
-					end if;
-					tmp_prev := data_in(F*ct-1);
-				end loop;
-				-- end generate;
+						if tmp_replaced then
+							tmp_charisk(F*ct-1) := '1';
+						end if;
+						tmp_prev := data_in(F*ct-1);
+					end loop;
 
-
-				-- character_replacement_without_scrambler : if not SCRAMBLING_ENABLED generate
-				--
-				-- end generate;
+				end if;
 
 				-- output registers
 				data_alignment_inserted(4*(lane_ct+1)-1 downto 4*lane_ct) <= data_out;
@@ -335,8 +333,37 @@ character_replacement_gen : for lane_ct in 0 to L-1 generate
 				prev_octet_replaced(lane_ct) <= tmp_replaced;
 
 			end if;
-		end if;
-	end process;
+		end process;
+	end generate;
+
+	-- with scrambling we replace certain characters at the end of a frame or multiframe
+	character_replacement_with_scrambler : if SCRAMBLING_ENABLED generate
+		character_replacement_pro : process(clk)
+			variable tmp_charisk : std_logic_vector(3 downto 0);
+			variable data_in : octet_array(3 downto 0);
+		begin
+
+			if rising_edge(clk) then
+				data_in := data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct);
+				tmp_charisk := b"0000";
+
+				-- check octets at end of frame
+				for ct in 1 to 4/F loop
+					if end_of_multiframe and (data_in(F*ct-1) = x"7c") then
+						tmp_charisk(F*ct-1) := '1';
+					elsif data_in(F*ct-1) = x"fc" then
+						tmp_charisk(F*ct-1) := '1';
+					end if;
+				end loop;
+
+				-- output registers
+				data_alignment_inserted(4*(lane_ct+1)-1 downto 4*lane_ct) <= data_in;
+				data_charisk(4*(lane_ct+1)-1 downto 4*lane_ct) <= tmp_charisk;
+
+			end if;
+		end process;
+	end generate;
+
 end generate;
 
 
