@@ -10,6 +10,8 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
+use std.textio.all;
+
 use work.jesd204b_pkg.all;
 
 entity jesd204b_tx is
@@ -63,7 +65,7 @@ signal end_of_multiframe : boolean := false;
 
 -- scrambler state for each lane
 type scramber_state_t is array(L-1 downto 0) of std_logic_vector(15 downto 0);
-signal scrambler_state : scramber_state_t := (others => "7f80");
+signal scrambler_state : scramber_state_t := (others => x"7f80");
 
 -- keep track of octets for alignemnt character insertion without scrambling
 signal prev_octet : octet_array(L-1 downto 0) := (others => x"00");
@@ -212,6 +214,7 @@ scrambler_enabled_gen : if SCRAMBLING_ENABLED generate
 			variable tmp_state : std_logic_vector(15 downto 0);
 			variable data_in, data_out : octet_array(3 downto 0);
 			variable scrambled_bit : std_logic;
+			variable l : line;
 		begin
 			if rising_edge(clk) then
 				if rst = '1' or state = WAIT_FOR_CGS then
@@ -222,17 +225,32 @@ scrambler_enabled_gen : if SCRAMBLING_ENABLED generate
 					data_in := data_octets(4*(lane_ct+1)-1 downto 4*lane_ct);
 
 					for frame_idx in 1 to 4/F loop
+						write(l, "frame_idx = " & integer'image(frame_idx));
+						writeline(output, l);
 						for byte_idx in F-1 downto 0 loop
+							write(l, "byte_idx = " & integer'image(byte_idx) & " data_byte = " & to_hstring(data_in((frame_idx-1)*F + byte_idx)));
+							writeline(output, l);
 							for bit_idx in 7 downto 0 loop
+								tmp_state := tmp_state srl 1;
+								write(l, "bit_idx = " & integer'image(bit_idx) &
+								" current bit = " & std_logic'image(data_in((frame_idx-1)*F + byte_idx)(bit_idx)) &
+								" tmp_state = " & to_hstring(tmp_state));
+								writeline(output, l);
 								tmp_state(15) := data_in((frame_idx-1)*F + byte_idx)(bit_idx) xor tmp_state(1) xor tmp_state(0);
 								data_out((frame_idx-1)*F + byte_idx)(bit_idx) := tmp_state(15);
-								tmp_state := tmp_state srl 1;
+								write(l, "tmp_state = " & to_hstring(tmp_state) & "; data_out = ");
+								for ct in 7 downto 0 loop
+									write(l, std_logic'image(data_out((frame_idx-1)*F + byte_idx)(ct)));
+								end loop;
+								writeline(output, l);
+
 							end loop;
 						end loop;
 					end loop;
 
 					-- output register
-					data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct) <= data_in(4*(lane_ct+1)-1 downto 4*lane_ct);
+					data_scrambled(4*(lane_ct+1)-1 downto 4*lane_ct) <= data_out;
+					scrambler_state(lane_ct) <= tmp_state;
 
 				end if;
 			end if;
