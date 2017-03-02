@@ -78,11 +78,11 @@ architecture bench of jesd204b_tx_tb is
 	begin
 		tdata <= (others => '0');
 		wait until rising_edge(tx_core_clk) and tready = '1';
-		for ct in 1 to 15 loop
+		for ct in 1 to 2055 loop
 			wait until rising_edge(tx_core_clk);
 		end loop;
 		tdata <= x"abcdef01abcdef02abcdef03abcdef04";
-		for ct in 1 to 16 loop
+		for ct in 1 to 2056 loop
 			wait until rising_edge(tx_core_clk);
 		end loop;
 	end procedure push_test_data;
@@ -410,7 +410,7 @@ testbench_state <= TEST_SCRAMBLED;
 wait for 2 us;
 
 
-stop_the_clocks <= true;
+-- stop_the_clocks <= true;
 wait;
 end process;
 
