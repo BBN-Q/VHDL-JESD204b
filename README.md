@@ -9,12 +9,17 @@ with a KCU105 development board and the
 
 ## Transmit module
 
-Features:
+### Implemented Features
 
 1. parameters for number lanes (L), octets per frame (M), frames per multiframe
 (F) specified through module generics.
 2. ILA sequence
 3. optional scrambler
+
+### Not Yet Implemented
+
+1. PRBS test patterns
+2. Lane mapping
 
 ## Receive module
 
