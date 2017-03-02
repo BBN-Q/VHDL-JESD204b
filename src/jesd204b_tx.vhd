@@ -336,7 +336,7 @@ character_replacement_gen : for lane_ct in 0 to L-1 generate
 
 				-- check octets at end of frame
 				for ct in 1 to 4/F loop
-					if end_of_multiframe and (data_in(F*ct-1) = x"7c") then
+					if (ct = 4/F) and end_of_multiframe and (data_in(F*ct-1) = x"7c") then
 						tmp_charisk(F*ct-1) := '1';
 					elsif data_in(F*ct-1) = x"fc" then
 						tmp_charisk(F*ct-1) := '1';
