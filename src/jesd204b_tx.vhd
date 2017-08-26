@@ -79,7 +79,7 @@ signal data_charisk : std_logic_vector(L*4-1 downto 0);
 begin
 
 fill_ila_data_gen : for lane_ct in 0 to L-1 generate
-	ila_data_array(lane_ct) <= fill_ila_data(M, L, F, K, lane_ct, 16, 16, SCRAMBLING_ENABLED);
+	ila_data_array(lane_ct) <= fill_ila_data(M, L, F, K, lane_ct, 16, 16, SCRAMBLING_ENABLED, 1);
 end generate;
 -- synchronize syncn onto clk
 syncn_synchronizer_inst : entity work.synchronizer
