@@ -32,7 +32,8 @@ package jesd204b_pkg is
 	-- and "The "Vhdl 2008 Unconstrained Array Type as Subtype in Array Type Definition" is not supported yet for simulation"
 	function fill_ila_data(M : natural; L : natural; F : natural; K : natural;
 	                       lane_num : natural; converter_resolution : natural;
-	                       bits_per_sample : natural; scrambling_enabled : boolean)
+	                       bits_per_sample : natural; scrambling_enabled : boolean;
+	                       HD: natural)
 	                       return octet_array;
 
 
@@ -58,7 +59,8 @@ package body jesd204b_pkg is
 	-- see section 8.2 in particular Figure 50 of the JEDEC Standard No. 204B
 	function fill_ila_data(M : natural; L : natural; F : natural; K : natural;
 	                       lane_num : natural; converter_resolution : natural;
-	                       bits_per_sample : natural; scrambling_enabled : boolean)
+	                       bits_per_sample : natural; scrambling_enabled : boolean;
+	                       HD : natural)
 	                       return octet_array is
 		variable ila_data : octet_array(0 to 4*K*F-1) := (others => x"00");
 		variable checksum : unsigned(7 downto 0) := (others => '0');
@@ -75,12 +77,12 @@ package body jesd204b_pkg is
 		variable configuration_data_vector : configuration_data_vector_t := (
 			(octet => 4,  offset => 1, bit_width => 4, value => 0), -- ADJCNT Number of adjustment resolution steps to adjust DAC LMFC. Applies to Subclass 2 operation only.
 			(octet => 2,  offset => 6, bit_width => 1, value => 0), -- ADJDIR Direction to adjust DAC LMFC 0 – Advance 1 – Delay Applies to Subclass 2 operation only
-			(octet => 1,  offset => 0, bit_width => 4, value => 11), -- BID Bank ID – Extension to DID -- x"b" for fun
+			(octet => 1,  offset => 0, bit_width => 4, value => 0), -- BID Bank ID – Extension to DID -- x"b" or 11 for fun
 			(octet => 10, offset => 0, bit_width => 5, value => 0), -- CF - No. of control words per frame clock period per link
 			(octet => 7,  offset => 6, bit_width => 2, value => 0), -- CS No. of control bits per sample
-			(octet => 0,  offset => 0, bit_width => 8, value => 173), -- DID Device (= link) identification no.  -- x"ad" for fun
+			(octet => 0,  offset => 0, bit_width => 8, value => 0), -- DID Device (= link) identification no.  -- x"ad" or 173  for fun
 			(octet => 4,  offset => 0, bit_width => 8, value => F-1), -- F-1 No. of octets per frame
-			(octet => 10, offset => 7, bit_width => 8, value => 0), -- HD High Density format
+			(octet => 10, offset => 7, bit_width => 1, value => HD), -- HD High Density format
 			(octet => 9,  offset => 5, bit_width => 8, value => 1), -- JESDV JESD204 version 000 – JESD204A 001 – JESD204B
 			(octet => 5,  offset => 0, bit_width => 5, value => K-1), -- K-1 No. of frames per multiframe
 			(octet => 3,  offset => 0, bit_width => 5, value => L-1), -- L-1 No. of lanes per converter device (link)
