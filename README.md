@@ -7,6 +7,11 @@ The module has had only limited testing and validation. We have got it working
 with a KCU105 development board and the
 [AD9164-FMC-EBZ](http://www.analog.com/en/design-center/evaluation-hardware-and-software/evaluation-boards-kits/EVAL-AD916X.html).
 
+## Usage
+
+The core needs to be wired to the gigabit transceivers and there are examples provided for 7 series
+and Ultrascale transceiver wizards and some supporting logic in [examples](examples/README.md).
+
 ## Transmit module
 
 ### Implemented Features
